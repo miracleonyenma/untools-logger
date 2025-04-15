@@ -17,6 +17,8 @@ class Logger {
   private env: {
     isDevelopment: boolean;
     isNode: boolean;
+    isBrowser: boolean;
+    isEdgeRuntime: boolean;
   };
 
   constructor(options: LoggerOptions = {}) {
@@ -30,22 +32,32 @@ class Logger {
   }
 
   private getEnvironment() {
+    // Check for Node.js environment
     const isNode =
       typeof process !== "undefined" &&
       process.versions != null &&
       process.versions.node != null;
 
+    // Check for browser environment
+    const isBrowser = typeof window !== "undefined";
+
+    // Check for Edge Runtime (Next.js middleware, edge functions)
+    const isEdgeRuntime =
+      typeof process !== "undefined" && process.env.NEXT_RUNTIME === "edge";
+
     let isDevelopment = true;
 
-    if (isNode) {
+    // Determine development mode based on environment
+    if (isNode || isEdgeRuntime) {
       isDevelopment = process.env.NODE_ENV !== "production";
-    } else {
+    } else if (isBrowser) {
       isDevelopment =
         !window.location.hostname.includes("production") &&
-        process.env.NODE_ENV !== "production";
+        (typeof process === "undefined" ||
+          process.env.NODE_ENV !== "production");
     }
 
-    return { isDevelopment, isNode };
+    return { isDevelopment, isNode, isBrowser, isEdgeRuntime };
   }
 
   private getCallerInfo() {
@@ -105,20 +117,31 @@ class Logger {
     ].filter(Boolean);
   }
 
-  private formatDOMElement(element: Element): string {
+  private formatDOMElement(element: any): string {
     if (this.domElementFormat === "disabled") {
+      return "[DOM Element]";
+    }
+
+    // Safety check - ensure we're dealing with a DOM element
+    if (
+      !this.env.isBrowser ||
+      !element ||
+      typeof element.tagName !== "string"
+    ) {
       return "[DOM Element]";
     }
 
     if (this.domElementFormat === "inspect") {
       let attributes = "";
-      for (let i = 0; i < element.attributes.length; i++) {
-        const attr = element.attributes[i];
-        attributes += ` ${attr.name}="${attr.value}"`;
+      if (element.attributes) {
+        for (let i = 0; i < element.attributes.length; i++) {
+          const attr = element.attributes[i];
+          attributes += ` ${attr.name}="${attr.value}"`;
+        }
       }
 
       let children = "";
-      if (element.children.length > 0) {
+      if (element.children && element.children.length > 0) {
         children = ` (${element.children.length} children)`;
       }
 
@@ -126,13 +149,15 @@ class Logger {
     }
 
     // Default: summary
-    return `<${element.tagName.toLowerCase()}> with ${element.attributes.length} attributes and ${element.children.length} children`;
+    return `<${element.tagName.toLowerCase()}> with ${
+      element.attributes?.length || 0
+    } attributes and ${element.children?.length || 0} children`;
   }
 
   private formatArgument(
     arg: unknown,
     depth = 0,
-    seen = new WeakMap<object, boolean>(),
+    seen = new WeakMap<object, boolean>()
   ): string {
     // Check for max depth to prevent call stack overflow
     if (depth > this.maxDepth) {
@@ -149,7 +174,9 @@ class Logger {
 
     if (typeof arg === "string") {
       if (arg.length > this.maxStringLength) {
-        return `${arg.substring(0, this.maxStringLength)}... [truncated, ${arg.length} chars total]`;
+        return `${arg.substring(0, this.maxStringLength)}... [truncated, ${
+          arg.length
+        } chars total]`;
       }
       return arg;
     }
@@ -167,9 +194,11 @@ class Logger {
       return `[Function: ${arg.name || "anonymous"}]`;
     }
 
+    // Safely check if the argument is a DOM Element
     if (
+      this.env.isBrowser &&
       typeof window !== "undefined" &&
-      window.Element &&
+      typeof Element !== "undefined" &&
       arg instanceof Element
     ) {
       return this.formatDOMElement(arg);
@@ -202,7 +231,7 @@ class Logger {
       return `[${items}]`;
     }
 
-    if (typeof arg === "object") {
+    if (typeof arg === "object" && arg !== null) {
       if (this.enableCircularHandling && seen.has(arg)) {
         return "[Circular Reference]";
       }
@@ -214,7 +243,7 @@ class Logger {
       try {
         const entries = Object.entries(arg as Record<string, unknown>).map(
           ([key, value]) =>
-            `${key}: ${this.formatArgument(value, depth + 1, seen)}`,
+            `${key}: ${this.formatArgument(value, depth + 1, seen)}`
         );
         return `{${entries.join(", ")}}`;
       } catch (error) {
@@ -240,7 +269,7 @@ class Logger {
     const metadata = this.formatMetadata(level);
 
     // Browser-specific styling
-    if (!this.env.isNode) {
+    if (this.env.isBrowser && !this.env.isNode) {
       const styles = {
         log: "color: #0099cc",
         debug: "color: #0099cc",
@@ -258,7 +287,7 @@ class Logger {
       args.forEach((arg) => {
         if (
           (typeof window !== "undefined" &&
-            window.Element &&
+            typeof Element !== "undefined" &&
             arg instanceof Element) ||
           (typeof arg === "object" && arg !== null)
         ) {
@@ -272,7 +301,7 @@ class Logger {
       // Log with formatting
       console[level](
         `%c${[...metadata, ...formattedArgs].join(" ")}`,
-        styles[level],
+        styles[level]
       );
 
       // Additionally log raw objects for better browser inspection if they exist
@@ -285,7 +314,8 @@ class Logger {
       return;
     }
 
-    // Node.js output with colors
+    // Node.js or Edge Runtime output with colors
+    // Note: Colors might not work properly in all Edge Runtime environments
     const colors = {
       log: "\x1b[36m", // Cyan
       debug: "\x1b[36m", // Cyan
@@ -295,8 +325,19 @@ class Logger {
       reset: "\x1b[0m", // Reset
     };
 
-    const formattedArgs = args.map((arg) => this.formatArgument(arg));
-    console[level](colors[level], ...metadata, ...formattedArgs, colors.reset);
+    // In Edge Runtime, we might want to skip fancy colors
+    if (this.env.isEdgeRuntime) {
+      const formattedArgs = args.map((arg) => this.formatArgument(arg));
+      console[level](...metadata, ...formattedArgs);
+    } else {
+      const formattedArgs = args.map((arg) => this.formatArgument(arg));
+      console[level](
+        colors[level],
+        ...metadata,
+        ...formattedArgs,
+        colors.reset
+      );
+    }
   }
 
   log(...args: unknown[]) {
@@ -319,19 +360,29 @@ class Logger {
     this._log("error", ...args);
   }
 
-  // Group logging for better organization
+  // Group logging for better organization - safe for all environments
   group(label: string) {
     if (!this.env.isDevelopment && !this.showInProd) {
       return;
     }
-    console.group(label);
+
+    if (typeof console.group === "function") {
+      console.group(label);
+    } else {
+      console.log(`=== GROUP START: ${label} ===`);
+    }
   }
 
   groupEnd() {
     if (!this.env.isDevelopment && !this.showInProd) {
       return;
     }
-    console.groupEnd();
+
+    if (typeof console.groupEnd === "function") {
+      console.groupEnd();
+    } else {
+      console.log("=== GROUP END ===");
+    }
   }
 
   // Utility method to time operations
@@ -339,14 +390,20 @@ class Logger {
     if (!this.env.isDevelopment && !this.showInProd) {
       return;
     }
-    console.time(label);
+
+    if (typeof console.time === "function") {
+      console.time(label);
+    }
   }
 
   timeEnd(label: string) {
     if (!this.env.isDevelopment && !this.showInProd) {
       return;
     }
-    console.timeEnd(label);
+
+    if (typeof console.timeEnd === "function") {
+      console.timeEnd(label);
+    }
   }
 }
 

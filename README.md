@@ -1,16 +1,17 @@
 # @untools/logger
 
-A powerful and flexible logging utility for JavaScript and TypeScript applications that handles complex data types including DOM elements and circular references.
+A powerful and flexible logging utility for JavaScript and TypeScript applications that handles complex data types including DOM elements and circular references. Built to work seamlessly across all environments including Next.js (client, server, and edge runtimes).
 
 ## Features
 
+- **Universal compatibility**: Works in browsers, Node.js, and edge runtimes (including Next.js middleware)
 - Handles DOM elements, circular references, and complex objects
 - Color-coded console output
 - Stack trace info for each log
-- Works in both Node.js and browser environments
 - Configurable logging levels
 - Timestamp support
 - Grouping and timing functionality
+- Isomorphic design - use the same logger code everywhere
 
 ## Installation
 
@@ -36,6 +37,32 @@ logger.info(document.getElementById('app'));
 const circular = { name: 'circular object' };
 circular.self = circular;
 logger.info(circular);
+```
+
+## Next.js Usage
+
+The logger works in all Next.js environments:
+
+```javascript
+// In server components, API routes, middleware or client components
+import { logger } from '@untools/logger';
+
+// Server-side usage
+export async function getServerSideProps() {
+  logger.info('Fetching data on server');
+  // ...
+}
+
+// Middleware usage
+export default async function middleware(req) {
+  logger.info('Processing request in middleware');
+  // ...
+}
+
+// Client-side usage
+useEffect(() => {
+  logger.info('Component mounted', { componentState });
+}, []);
 ```
 
 ## Custom Logger Configuration
@@ -79,6 +106,14 @@ customLogger.info('Using custom logger configuration');
 - `groupEnd()`: End the current group
 - `time(label)`: Start a timer
 - `timeEnd(label)`: End timer and log elapsed time
+
+## Environment Detection
+
+The logger automatically detects the runtime environment and adjusts its behavior accordingly:
+
+- **Browser**: Full color support and DOM element inspection
+- **Node.js**: Terminal color support with ANSI codes
+- **Edge Runtime**: Simplified output suitable for edge environments
 
 ## License
 
