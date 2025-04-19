@@ -32,29 +32,34 @@ class Logger {
   }
 
   private getEnvironment() {
-    // Check for Node.js environment
+    // Check for Node.js environment (Edge Runtime compatible)
     const isNode =
       typeof process !== "undefined" &&
       process.versions != null &&
-      process.versions.node != null;
+      typeof process.versions === "object";
 
     // Check for browser environment
     const isBrowser = typeof window !== "undefined";
 
     // Check for Edge Runtime (Next.js middleware, edge functions)
     const isEdgeRuntime =
-      typeof process !== "undefined" && process.env.NEXT_RUNTIME === "edge";
+      typeof process !== "undefined" &&
+      typeof process.env === "object" &&
+      process.env.NEXT_RUNTIME === "edge";
 
     let isDevelopment = true;
 
     // Determine development mode based on environment
     if (isNode || isEdgeRuntime) {
-      isDevelopment = process.env.NODE_ENV !== "production";
+      isDevelopment =
+        typeof process.env === "object" &&
+        process.env.NODE_ENV !== "production";
     } else if (isBrowser) {
       isDevelopment =
         !window.location.hostname.includes("production") &&
         (typeof process === "undefined" ||
-          process.env.NODE_ENV !== "production");
+          (typeof process.env === "object" &&
+            process.env.NODE_ENV !== "production"));
     }
 
     return { isDevelopment, isNode, isBrowser, isEdgeRuntime };
