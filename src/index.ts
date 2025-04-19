@@ -32,34 +32,42 @@ class Logger {
   }
 
   private getEnvironment() {
-    // Check for Node.js environment (Edge Runtime compatible)
-    const isNode =
-      typeof process !== "undefined" &&
-      process.versions != null &&
-      typeof process.versions === "object";
-
-    // Check for browser environment
-    const isBrowser = typeof window !== "undefined";
-
-    // Check for Edge Runtime (Next.js middleware, edge functions)
-    const isEdgeRuntime =
-      typeof process !== "undefined" &&
-      typeof process.env === "object" &&
-      process.env.NEXT_RUNTIME === "edge";
-
+    let isNode = false;
+    let isBrowser = false;
+    let isEdgeRuntime = false;
     let isDevelopment = true;
 
-    // Determine development mode based on environment
-    if (isNode || isEdgeRuntime) {
-      isDevelopment =
-        typeof process.env === "object" &&
-        process.env.NODE_ENV !== "production";
-    } else if (isBrowser) {
+    // First, check for Edge Runtime as it's the most restrictive
+    if (
+      typeof process !== "undefined" &&
+      typeof process.env === "object" &&
+      process.env.NEXT_RUNTIME === "edge"
+    ) {
+      isEdgeRuntime = true;
+      isDevelopment = process.env.NODE_ENV !== "production";
+    }
+    // Then check for browser
+    else if (typeof window !== "undefined") {
+      isBrowser = true;
       isDevelopment =
         !window.location.hostname.includes("production") &&
         (typeof process === "undefined" ||
           (typeof process.env === "object" &&
             process.env.NODE_ENV !== "production"));
+    }
+    // Lastly check for Node.js (but only if not in Edge Runtime)
+    else if (!isEdgeRuntime && typeof process !== "undefined") {
+      try {
+        // This block won't be executed in Edge Runtime
+        isNode =
+          typeof process.versions === "object" && process.versions != null;
+        isDevelopment =
+          typeof process.env === "object" &&
+          process.env.NODE_ENV !== "production";
+      } catch (e) {
+        // Fallback for environments where process exists but versions is not accessible
+        isNode = false;
+      }
     }
 
     return { isDevelopment, isNode, isBrowser, isEdgeRuntime };
