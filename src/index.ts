@@ -5,6 +5,33 @@ interface LoggerOptions {
   maxStringLength?: number;
   enableCircularHandling?: boolean;
   domElementFormat?: "inspect" | "summary" | "disabled";
+  prettyPrint?: boolean;
+  indentSize?: number;
+  colors?: boolean;
+}
+
+interface FormatOptions {
+  indentation?: string;
+  depth?: number;
+  seen?: WeakMap<object, boolean>;
+}
+
+interface ColorScheme {
+  string: string;
+  number: string;
+  boolean: string;
+  null: string;
+  undefined: string;
+  function: string;
+  symbol: string;
+  date: string;
+  regexp: string;
+  key: string;
+  bracket: string;
+  circular: string;
+  truncated: string;
+  maxDepth: string;
+  reset: string;
 }
 
 class Logger {
@@ -14,12 +41,17 @@ class Logger {
   private maxStringLength: number;
   private enableCircularHandling: boolean;
   private domElementFormat: "inspect" | "summary" | "disabled";
+  private prettyPrint: boolean;
+  private indentSize: number;
+  private useColors: boolean;
   private env: {
     isDevelopment: boolean;
     isNode: boolean;
     isBrowser: boolean;
     isEdgeRuntime: boolean;
   };
+  private consoleColors: ColorScheme;
+  private browserColors: ColorScheme;
 
   constructor(options: LoggerOptions = {}) {
     this.showInProd = options.showInProd ?? false;
@@ -28,7 +60,48 @@ class Logger {
     this.maxStringLength = options.maxStringLength ?? 10000;
     this.enableCircularHandling = options.enableCircularHandling ?? true;
     this.domElementFormat = options.domElementFormat ?? "summary";
+    this.prettyPrint = options.prettyPrint ?? true;
+    this.indentSize = options.indentSize ?? 2;
+    this.useColors = options.colors ?? true;
     this.env = this.getEnvironment();
+
+    // Console color schemes for Node.js
+    this.consoleColors = {
+      string: "\x1b[32m", // Green
+      number: "\x1b[36m", // Cyan
+      boolean: "\x1b[35m", // Magenta
+      null: "\x1b[90m", // Gray
+      undefined: "\x1b[90m", // Gray
+      function: "\x1b[36m", // Cyan
+      symbol: "\x1b[35m", // Magenta
+      date: "\x1b[34m", // Blue
+      regexp: "\x1b[35m", // Magenta
+      key: "\x1b[33m", // Yellow
+      bracket: "\x1b[90m", // Gray
+      circular: "\x1b[31m", // Red
+      truncated: "\x1b[90m", // Gray
+      maxDepth: "\x1b[90m", // Gray
+      reset: "\x1b[0m", // Reset
+    };
+
+    // CSS color schemes for browser
+    this.browserColors = {
+      string: "color: green;",
+      number: "color: cyan;",
+      boolean: "color: magenta;",
+      null: "color: gray;",
+      undefined: "color: gray;",
+      function: "color: cyan;",
+      symbol: "color: magenta;",
+      date: "color: blue;",
+      regexp: "color: magenta;",
+      key: "color: #b58900;",
+      bracket: "color: gray;",
+      circular: "color: red;",
+      truncated: "color: gray;",
+      maxDepth: "color: gray;",
+      reset: "",
+    };
   }
 
   private getEnvironment() {
@@ -167,44 +240,71 @@ class Logger {
     } attributes and ${element.children?.length || 0} children`;
   }
 
-  private formatArgument(
-    arg: unknown,
-    depth = 0,
-    seen = new WeakMap<object, boolean>()
-  ): string {
+  private colorizeText(text: string, type: keyof ColorScheme): string {
+    if (!this.useColors) return text;
+
+    if (this.env.isNode && !this.env.isEdgeRuntime) {
+      return `${this.consoleColors[type]}${text}${this.consoleColors.reset}`;
+    }
+
+    return text; // In browser we handle coloring differently via CSS
+  }
+
+  private getIndentation(depth: number): string {
+    return " ".repeat(depth * this.indentSize);
+  }
+
+  private formatArgument(arg: unknown, options: FormatOptions = {}): string {
+    const depth = options.depth ?? 0;
+    const seen = options.seen ?? new WeakMap<object, boolean>();
+    const indentation = options.indentation ?? "";
+
     // Check for max depth to prevent call stack overflow
     if (depth > this.maxDepth) {
-      return "[Max Depth Reached]";
+      return this.colorizeText("[Max Depth Reached]", "maxDepth");
     }
 
     if (arg === null) {
-      return "null";
+      return this.colorizeText("null", "null");
     }
 
     if (arg === undefined) {
-      return "undefined";
+      return this.colorizeText("undefined", "undefined");
     }
 
     if (typeof arg === "string") {
       if (arg.length > this.maxStringLength) {
-        return `${arg.substring(0, this.maxStringLength)}... [truncated, ${
-          arg.length
-        } chars total]`;
+        const truncated = `${arg.substring(0, this.maxStringLength)}...`;
+        const truncatedMsg = this.colorizeText(
+          ` [truncated, ${arg.length} chars total]`,
+          "truncated"
+        );
+        return this.colorizeText(`"${truncated}"`, "string") + truncatedMsg;
       }
-      return arg;
+      return this.colorizeText(`"${arg}"`, "string");
     }
 
-    if (
-      typeof arg === "number" ||
-      typeof arg === "boolean" ||
-      typeof arg === "symbol" ||
-      typeof arg === "bigint"
-    ) {
-      return String(arg);
+    if (typeof arg === "number") {
+      return this.colorizeText(String(arg), "number");
+    }
+
+    if (typeof arg === "boolean") {
+      return this.colorizeText(String(arg), "boolean");
+    }
+
+    if (typeof arg === "symbol") {
+      return this.colorizeText(String(arg), "symbol");
+    }
+
+    if (typeof arg === "bigint") {
+      return this.colorizeText(`${String(arg)}n`, "number");
     }
 
     if (typeof arg === "function") {
-      return `[Function: ${arg.name || "anonymous"}]`;
+      return this.colorizeText(
+        `[Function: ${arg.name || "anonymous"}]`,
+        "function"
+      );
     }
 
     // Safely check if the argument is a DOM Element
@@ -222,31 +322,63 @@ class Logger {
     }
 
     if (arg instanceof Date) {
-      return arg.toISOString();
+      return this.colorizeText(arg.toISOString(), "date");
     }
 
     if (arg instanceof RegExp) {
-      return arg.toString();
+      return this.colorizeText(arg.toString(), "regexp");
     }
 
     if (Array.isArray(arg)) {
       if (this.enableCircularHandling && seen.has(arg)) {
-        return "[Circular Reference]";
+        return this.colorizeText("[Circular Reference]", "circular");
       }
 
       if (this.enableCircularHandling) {
         seen.set(arg, true);
       }
 
+      if (arg.length === 0) {
+        return this.colorizeText("[]", "bracket");
+      }
+
+      if (!this.prettyPrint) {
+        const items = arg
+          .map((item) => this.formatArgument(item, { depth: depth + 1, seen }))
+          .join(", ");
+        return (
+          this.colorizeText("[", "bracket") +
+          items +
+          this.colorizeText("]", "bracket")
+        );
+      }
+
+      const nextIndent = indentation + this.getIndentation(1);
       const items = arg
-        .map((item) => this.formatArgument(item, depth + 1, seen))
-        .join(", ");
-      return `[${items}]`;
+        .map(
+          (item) =>
+            nextIndent +
+            this.formatArgument(item, {
+              depth: depth + 1,
+              seen,
+              indentation: nextIndent,
+            })
+        )
+        .join(",\n");
+
+      return (
+        this.colorizeText("[", "bracket") +
+        "\n" +
+        items +
+        "\n" +
+        indentation +
+        this.colorizeText("]", "bracket")
+      );
     }
 
     if (typeof arg === "object" && arg !== null) {
       if (this.enableCircularHandling && seen.has(arg)) {
-        return "[Circular Reference]";
+        return this.colorizeText("[Circular Reference]", "circular");
       }
 
       if (this.enableCircularHandling) {
@@ -254,11 +386,49 @@ class Logger {
       }
 
       try {
-        const entries = Object.entries(arg as Record<string, unknown>).map(
-          ([key, value]) =>
-            `${key}: ${this.formatArgument(value, depth + 1, seen)}`
+        const entries = Object.entries(arg as Record<string, unknown>);
+
+        if (entries.length === 0) {
+          return this.colorizeText("{}", "bracket");
+        }
+
+        if (!this.prettyPrint) {
+          const formattedEntries = entries.map(
+            ([key, value]) =>
+              this.colorizeText(key, "key") +
+              ": " +
+              this.formatArgument(value, { depth: depth + 1, seen })
+          );
+          return (
+            this.colorizeText("{", "bracket") +
+            formattedEntries.join(", ") +
+            this.colorizeText("}", "bracket")
+          );
+        }
+
+        const nextIndent = indentation + this.getIndentation(1);
+        const formattedEntries = entries
+          .map(
+            ([key, value]) =>
+              nextIndent +
+              this.colorizeText(key, "key") +
+              ": " +
+              this.formatArgument(value, {
+                depth: depth + 1,
+                seen,
+                indentation: nextIndent,
+              })
+          )
+          .join(",\n");
+
+        return (
+          this.colorizeText("{", "bracket") +
+          "\n" +
+          formattedEntries +
+          "\n" +
+          indentation +
+          this.colorizeText("}", "bracket")
         );
-        return `{${entries.join(", ")}}`;
       } catch (error) {
         // Type-safe error handling
         const errorMessage =
@@ -292,8 +462,6 @@ class Logger {
       };
 
       // Special handling for objects in browser
-      // If it's a DOM element or a circular object, use our custom formatter
-      // Otherwise, pass the original object to console for better browser inspection
       const formattedArgs: unknown[] = [];
       const rawObjects: unknown[] = [];
 
@@ -304,8 +472,11 @@ class Logger {
             arg instanceof Element) ||
           (typeof arg === "object" && arg !== null)
         ) {
+          // We'll pretty-print complex objects but also log raw objects for inspection
           formattedArgs.push(this.formatArgument(arg));
-          rawObjects.push(arg);
+          if (this.prettyPrint) {
+            rawObjects.push(arg);
+          }
         } else {
           formattedArgs.push(this.formatArgument(arg));
         }
@@ -318,8 +489,8 @@ class Logger {
       );
 
       // Additionally log raw objects for better browser inspection if they exist
-      if (rawObjects.length > 0) {
-        console.groupCollapsed("Raw Objects");
+      if (this.prettyPrint && rawObjects.length > 0) {
+        console.groupCollapsed("Raw Objects (for inspection)");
         rawObjects.forEach((obj) => console[level](obj));
         console.groupEnd();
       }
@@ -328,7 +499,6 @@ class Logger {
     }
 
     // Node.js or Edge Runtime output with colors
-    // Note: Colors might not work properly in all Edge Runtime environments
     const colors = {
       log: "\x1b[36m", // Cyan
       debug: "\x1b[36m", // Cyan
@@ -339,7 +509,7 @@ class Logger {
     };
 
     // In Edge Runtime, we might want to skip fancy colors
-    if (this.env.isEdgeRuntime) {
+    if (this.env.isEdgeRuntime || !this.useColors) {
       const formattedArgs = args.map((arg) => this.formatArgument(arg));
       console[level](...metadata, ...formattedArgs);
     } else {
@@ -420,7 +590,10 @@ class Logger {
   }
 }
 
-// Create default instance
-const logger = new Logger();
+// Create default instance with pretty print enabled
+const logger = new Logger({
+  prettyPrint: true,
+  colors: true,
+});
 
 export { Logger, logger, type LoggerOptions };
