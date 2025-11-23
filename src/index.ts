@@ -1,3 +1,10 @@
+export enum LogLevel {
+  ERROR = 0,
+  WARN = 1,
+  INFO = 2,
+  DEBUG = 3,
+}
+
 interface LoggerOptions {
   showInProd?: boolean;
   includeTimestamp?: boolean;
@@ -8,6 +15,9 @@ interface LoggerOptions {
   prettyPrint?: boolean;
   indentSize?: number;
   colors?: boolean;
+  logLevel?: LogLevel;
+  namespace?: string;
+  enabled?: boolean;
 }
 
 interface FormatOptions {
@@ -44,6 +54,9 @@ class Logger {
   private prettyPrint: boolean;
   private indentSize: number;
   private useColors: boolean;
+  private logLevel: LogLevel;
+  private namespace: string;
+  private enabled: boolean;
   private env: {
     isDevelopment: boolean;
     isNode: boolean;
@@ -63,6 +76,9 @@ class Logger {
     this.prettyPrint = options.prettyPrint ?? true;
     this.indentSize = options.indentSize ?? 2;
     this.useColors = options.colors ?? true;
+    this.logLevel = options.logLevel ?? LogLevel.INFO;
+    this.namespace = options.namespace ?? "";
+    this.enabled = options.enabled ?? true;
     this.env = this.getEnvironment();
 
     // Console color schemes for Node.js
@@ -102,6 +118,22 @@ class Logger {
       maxDepth: "color: gray;",
       reset: "",
     };
+  }
+
+  /**
+   * Sets the log level.
+   * @param {LogLevel} level - The new log level
+   */
+  setLogLevel(level: LogLevel): void {
+    this.logLevel = level;
+  }
+
+  /**
+   * Enables or disables logging.
+   * @param {boolean} enabled - Whether to enable logging
+   */
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
   }
 
   private getEnvironment() {
@@ -195,8 +227,10 @@ class Logger {
   private formatMetadata(level: string) {
     const callerInfo = this.getCallerInfo();
     const timestamp = this.includeTimestamp ? new Date().toISOString() : "";
+    const namespaceStr = this.namespace ? `[${this.namespace}]` : "";
 
     return [
+      namespaceStr,
       `[${level.toUpperCase()}]`,
       this.includeTimestamp ? `[${timestamp}]` : "",
       `[${callerInfo.file}:${callerInfo.line}]`,
@@ -444,6 +478,22 @@ class Logger {
     level: "debug" | "info" | "warn" | "error" | "log",
     ...args: unknown[]
   ) {
+    if (!this.enabled) {
+      return;
+    }
+
+    const levelPriority = {
+      error: LogLevel.ERROR,
+      warn: LogLevel.WARN,
+      info: LogLevel.INFO,
+      log: LogLevel.INFO,
+      debug: LogLevel.DEBUG,
+    };
+
+    if (this.logLevel < levelPriority[level]) {
+      return;
+    }
+
     // Check if we should show logs in current environment
     if (!this.env.isDevelopment && !this.showInProd) {
       return;
