@@ -145,30 +145,30 @@ class Logger {
     // First, check for Edge Runtime as it's the most restrictive
     if (
       typeof process !== "undefined" &&
-      typeof process.env === "object" &&
-      process.env.NEXT_RUNTIME === "edge"
+      typeof process?.env === "object" &&
+      process?.env.NEXT_RUNTIME === "edge"
     ) {
       isEdgeRuntime = true;
-      isDevelopment = process.env.NODE_ENV !== "production";
+      isDevelopment = process?.env.NODE_ENV !== "production";
     }
     // Then check for browser
     else if (typeof window !== "undefined") {
       isBrowser = true;
       isDevelopment =
-        !window.location.hostname.includes("production") &&
+        !window?.location?.hostname?.includes?.("production") &&
         (typeof process === "undefined" ||
-          (typeof process.env === "object" &&
-            process.env.NODE_ENV !== "production"));
+          (typeof process?.env === "object" &&
+            process?.env.NODE_ENV !== "production"));
     }
     // Lastly check for Node.js (but only if not in Edge Runtime)
     else if (!isEdgeRuntime && typeof process !== "undefined") {
       try {
         // This block won't be executed in Edge Runtime
         isNode =
-          typeof process.versions === "object" && process.versions != null;
+          typeof process?.versions === "object" && process?.versions != null;
         isDevelopment =
-          typeof process.env === "object" &&
-          process.env.NODE_ENV !== "production";
+          typeof process?.env === "object" &&
+          process?.env.NODE_ENV !== "production";
       } catch (e) {
         // Fallback for environments where process exists but versions is not accessible
         isNode = false;
